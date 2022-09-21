@@ -5,9 +5,6 @@ async function handleRequest(req) {
   const res = await fetch(req);
   const contentType = res.headers.get('Content-Type');
   
-
-  // If the response is HTML, it can be transformed with
-  // HTMLRewriter -- otherwise, it should pass through
   if (contentType.startsWith('text/html')) {
        var oldText = await res.text();
 
@@ -18,9 +15,7 @@ async function handleRequest(req) {
             headers: res.headers
           }
        )
-
        return newRes;
-    //return rewriter.transform(res);
   } else {
     return res;
   }
