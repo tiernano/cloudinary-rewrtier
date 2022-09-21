@@ -1,0 +1,5 @@
+name = "cloudinary-rewriter"
+main = "src/index.js"
+usage_model = "bundled"
+env = { }
+compatibility_date = "2022-09-21"

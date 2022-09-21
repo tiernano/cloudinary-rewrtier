@@ -1,0 +1,12 @@
+{
+  "name": "cloudinary-rewriter",
+  "version": "0.0.0",
+  "devDependencies": {
+    "wrangler": "2.1.6"
+  },
+  "private": true,
+  "scripts": {
+    "start": "wrangler dev",
+    "deploy": "wrangler publish"
+  }
+}
