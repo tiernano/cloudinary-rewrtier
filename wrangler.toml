@@ -3,3 +3,7 @@ main = "src/index.js"
 usage_model = "bundled"
 env = { }
 compatibility_date = "2022-09-21"
+
+[[kv_namespaces]]
+  binding = "EDGE_CACHE"
+  id = "15a5fc03f60e444082e07b8b39768efd"
