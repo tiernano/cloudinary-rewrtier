@@ -10,26 +10,20 @@ const CLOUDFLARE_API = {
 	zone: '', // "Zone ID" from the API section of the dashboard overview page https://dash.cloudflare.com/
 };
 
- async function rewriteResponse(response){
-
-  const contentType = response.headers.get('Content-Type');
+//  async function rewriteBody(contentType, body){
   
-  if (contentType.startsWith('text/html')) {
-    let oldText = await response.text();
-    let newText = oldText.replaceAll(OLD_URL, NEW_URL);
-    let newRes = new Response(newText, {
-      status: 200,
-      headers: response.header
-    });
-    newRes.headers.set("Content-Type", "text/html");
+//   if (contentType.startsWith('text/html')) {
+//     console.log(body);
 
-    console.log("rewrote text");
-    return newRes;
-  }
-  else{
-    return response;
-  }
-}
+//     let newText = body.replaceAll(OLD_URL, NEW_URL);
+    
+//     console.log("rewrote text");
+//     return newText;
+//   }
+//   else{
+//     return body;
+//   }
+// }
 
 
 /**
@@ -54,7 +48,7 @@ const CLOUDFLARE_API = {
 		configured = true;
 	}
 
-  console.log(configured);
+  
 	// Bypass processing of image requests (for everything except Firefox which doesn't use image/*)
 	const accept = request.headers.get('Accept');
 	let isImage = false;
@@ -83,9 +77,12 @@ const CLOUDFLARE_API = {
 
 	if (response === null) {
 		// Clone the request, add the edge-cache header and send it through.
+    console.log("Non Cached Response: " + originalRequest.url);
+    
 		let request = new Request(originalRequest);
 		request.headers.set('x-HTML-Edge-Cache', 'supports=cache|purgeall|bypass-cookies');
 		response = await fetch(request);
+    //response = await rewriteBody(response.headers.get('Content-Type', await response.text()));
 
 		if (response) {
 			const options = getResponseOptions(response);
@@ -118,6 +115,7 @@ const CLOUDFLARE_API = {
 				if (!options) {
 					status += ', Refreshed';
 					event.waitUntil(updateCache(originalRequest, cacheVer, event));
+
 				}
 			}
 		}
@@ -131,10 +129,8 @@ const CLOUDFLARE_API = {
 		isHTML
 	) {
 
-    let reroteBody = await rewriteResponse(response);
-
-		response = reroteBody;
-    console.log("setting headers");
+    
+		//response =  await rewriteBody(response.headers.get('Content-Type', await response.text()));
 
 		response.headers.set('x-HTML-Edge-Cache-Status', status);
 		if (cacheVer !== null) {
@@ -214,7 +210,7 @@ async function getCachedResponse(request) {
 		// Build the versioned URL for checking the cache
 		cacheVer = await GetCurrentCacheVersion(cacheVer);
 		const cacheKeyRequest = GenerateCacheRequest(request, cacheVer);
-
+    
 		// See if there is a request match in the cache
 		try {
 			let cache = caches.default;
@@ -222,19 +218,28 @@ async function getCachedResponse(request) {
 			if (cachedResponse) {
 				// Copy Response object so that we can edit headers.
 
-        cachedResponse = rewriteResponse(cachedResponse);
+        //cachedResponse = await rewriteBody(cachedResponse.headers.get('Content-Type', await cachedResponse.text()));
+        console.log("Found cached response");
 
 				// Check to see if the response needs to be bypassed because of a cookie
+        console.log("checking shouldBypassEdgeCache");
+
 				bypassCache = shouldBypassEdgeCache(request, cachedResponse);
+        console.log("Bypass Cache is: " + bypassCache);
 
 				// Copy the original cache headers back and clean up any control headers
 				if (bypassCache) {
 					status = 'Bypass Cookie';
 				} else {
 					status = 'Hit';
+          console.log(status);
+          console.log("Deleting cache control");
 					cachedResponse.headers.delete('Cache-Control');
+          console.log("x-HTML-Edge-Cache-Status");
 					cachedResponse.headers.delete('x-HTML-Edge-Cache-Status');
 					for (header of CACHE_HEADERS) {
+            console.log("looking for x-HTML-Edge-Cache-Header-" + header);
+
 						let value = cachedResponse.headers.get('x-HTML-Edge-Cache-Header-' + header);
 						if (value) {
 							cachedResponse.headers.delete('x-HTML-Edge-Cache-Header-' + header);
@@ -249,9 +254,11 @@ async function getCachedResponse(request) {
 		} catch (err) {
 			// Send the exception back in the response header for debugging
 			status = 'Cache Read Exception: ' + err.message;
+      console.log(err.stack);
+      
 		}
 	}
-
+  console.log(status);
 	return { response, cacheVer, status, bypassCache };
 }
 
@@ -298,12 +305,15 @@ async function updateCache(originalRequest, cacheVer, event) {
 
 	if (response) {
 		status = ': Fetched';
+    console.log(status);
 		const options = getResponseOptions(response);
 		if (options && options.purge) {
+      console.log("Purge cache");
 			await purgeCache(cacheVer, event);
 		}
 		let bypassCache = shouldBypassEdgeCache(request, response);
 		if ((!options || options.cache) && !bypassCache) {
+      console.log("writing cache");
 			await cacheResponse(cacheVer, originalRequest, response, event);
 		}
 	}
@@ -336,25 +346,36 @@ async function cacheResponse(cacheVer, request, originalResponse, event) {
 			// create a new response object based on the clone that we can edit.
 			let cache = caches.default;
 			let clonedResponse = originalResponse.clone();
-      
-			let response = rewriteResponse(clonedResponse);
+    
 
 			for (header of CACHE_HEADERS) {
-				let value = response.headers.get(header);
+				let value = clonedResponse.headers.get(header);
 				if (value) {
-					response.headers.delete(header);
-					response.headers.set('x-HTML-Edge-Cache-Header-' + header, value);
+					clonedResponse.headers.delete(header);
+					clonedResponse.headers.set('x-HTML-Edge-Cache-Header-' + header, value);
 				}
 			}
-			response.headers.delete('Set-Cookie');
-			response.headers.set('Cache-Control', 'public; max-age=315360000');
+			clonedResponse.headers.delete('Set-Cookie');
+			clonedResponse.headers.set('Cache-Control', 'public; max-age=315360000');
 
-			event.waitUntil(cache.put(cacheKeyRequest, response));
+      let contentType = clonedResponse.headers.get("Content-Type");
+
+      if(contentType && contentType.startsWith("text/html")){
+        var oldText = await clonedResponse.text();
+
+        let newText = oldText.replaceAll(OLD_URL, NEW_URL);
+        let newResponse = new Response(newText, clonedResponse);
+        clonedResponse = newResponse;
+      }
+
+			event.waitUntil(cache.put(cacheKeyRequest, clonedResponse));
 			status = ', Cached';
+      console.log(cacheKeyRequest.url + " " + status);
 		} catch (err) {
 			// status = ", Cache Write Exception: " + err.message;
 		}
 	}
+  
 	return status;
 }
 
@@ -369,34 +390,43 @@ async function cacheResponse(cacheVer, request, originalResponse, event) {
  */
 function getResponseOptions(response) {
 	let options = null;
-	let header = response.headers.get('x-HTML-Edge-Cache');
-	if (header) {
-		options = {
-			purge: false,
-			cache: false,
-			bypassCookies: [],
-		};
-		let commands = header.split(',');
-		for (let command of commands) {
-			if (command.trim() === 'purgeall') {
-				options.purge = true;
-			} else if (command.trim() === 'cache') {
-				options.cache = true;
-			} else if (command.trim().startsWith('bypass-cookies')) {
-				let separator = command.indexOf('=');
-				if (separator >= 0) {
-					let cookies = command.substr(separator + 1).split('|');
-					for (let cookie of cookies) {
-						cookie = cookie.trim();
-						if (cookie.length) {
-							options.bypassCookies.push(cookie);
-						}
-					}
-				}
-			}
-		}
-	}
+  console.log("trying to get header");
+  
+	let headers = response.headers;
+  
+  if(headers){
+    let header = headers.get('x-HTML-Edge-Cache');
 
+    console.log("Got header " + header);
+
+    if (header) {
+      options = {
+        purge: false,
+        cache: false,
+        bypassCookies: [],
+      };
+      let commands = header.split(',');
+      for (let command of commands) {
+        if (command.trim() === 'purgeall') {
+          options.purge = true;
+        } else if (command.trim() === 'cache') {
+          options.cache = true;
+        } else if (command.trim().startsWith('bypass-cookies')) {
+          let separator = command.indexOf('=');
+          if (separator >= 0) {
+            let cookies = command.substr(separator + 1).split('|');
+            for (let cookie of cookies) {
+              cookie = cookie.trim();
+              if (cookie.length) {
+                options.bypassCookies.push(cookie);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+ 
 	return options;
 }
 
@@ -438,5 +468,7 @@ function GenerateCacheRequest(request, cacheVer) {
 		cacheUrl += '?';
 	}
 	cacheUrl += 'cf_edge_cache_ver=' + cacheVer;
+  console.log(cacheUrl);
+
 	return new Request(cacheUrl);
 }
